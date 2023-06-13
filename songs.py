@@ -1,4 +1,4 @@
-from google.cloud import storage
+from google.cloud import storage, bigquery
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
@@ -8,6 +8,8 @@ import os
 URL = 'https://www.971theriver.com/lsp/'
 GCS_BUCKET_NAME = 'the-river-songs'
 FILE_BASE_NAME = 'songlist'
+BQ_PROJECT_NAME = 'calm-collective-205117'
+TABLE_NAME = 'SONGS'
 
 def get_data(url: str) -> tuple[list, list, list]:
 
@@ -55,13 +57,13 @@ def create_file_in_gcs_bucket() -> None:
     and load the file to the GCS bucket.
     '''
     
-    client = storage.Client()
+    storage_client = storage.Client()
 
     file_timestamp = str(int(datetime.now().timestamp()))
 
     bucket_name = GCS_BUCKET_NAME
 
-    bucket = client.get_bucket(bucket_name)
+    bucket = storage_client.get_bucket(bucket_name)
     file_name = f'{FILE_BASE_NAME}_{file_timestamp}.csv'
 
     blob = bucket.blob(file_name)
@@ -72,26 +74,107 @@ def create_file_in_gcs_bucket() -> None:
     playlist.to_csv(file_name, index=False)
 
     blob.upload_from_filename(filename=file_name)
+    storage_client.close()
 
 
-def load_files_to_staging() -> None:
+def create_external_table() -> None:
 
     '''
-    Grab the files from the GCS bucket and load them into the table
-    in the STAGING dataset. This will be used to merge to the datamart table.
+    Create an external table from the files that will be used to load the
+    data to the STAGING dataset.
+    '''
+    external_query = f'''
+        CREATE OR REPLACE EXTERNAL TABLE
+            `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
+        OPTIONS (
+            format = 'CSV',
+            skip_leading_rows = 1,
+            uris = ['gs://{GCS_BUCKET_NAME}/{FILE_BASE_NAME}*.csv']
+        )
+        ;
+    '''
+
+    external_client = bigquery.Client()
+
+    external_client.query(external_query)
+    external_client.close()
+
+
+def load_data_to_staging() -> None:
+
+    '''
+    Load the data from the external table into the table in the STAGING
+    dataset. This will be used to merge to the datamart table.
     '''
     
-    pass
+    staging_query = f'''
+        TRUNCATE TABLE
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
+        INSERT
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
+        SELECT
+            Song,
+            Artist,
+            DATE(TimePlayed) AS DatePlayed,
+            TIME(TimePlayed) AS TimePlayed
+        FROM
+            `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
+        ;
+    '''
+
+    staging_client = bigquery.Client()
+    
+    staging_client.query(staging_query)
+    staging_client.close()
 
 
-def merge_to_datamart() -> None:
+def load_data_to_datamart() -> None:
 
     '''
-    Merge the data from the STAGING dataset into the datamart table.
+    Merge the data from the STAGING dataset into the DATAMART table.
     '''
     
-    pass
+    datamart_query = f'''
+        INSERT
+            `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
+        SELECT DISTINCT
+            Song,
+            Artist,
+            DatePlayed,
+            TimePlayed
+        FROM
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}` AS S
+        WHERE
+            NOT EXISTS (
+                SELECT
+                    1
+                FROM
+                    `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
+                WHERE
+                    Song = S.Song
+                    AND
+                    Artist = S.Artist
+                    AND
+                    DatePlayed = S.DatePlayed
+                    AND
+                    TimePlayed = S.TimePlayed
+            )
+        ;
+    '''
 
+    datamart_client = bigquery.Client()
+
+    datamart_client.query(datamart_query)
+    datamart_client.close()
+
+
+def move_files_to_archive() -> None:
+
+    '''
+    Move the files to the archive folder.
+    '''
+
+    pass
 
 def clean_up_directory() -> None:
 
@@ -105,10 +188,16 @@ def main() -> None:
     print('Pulling the data, creating the files, and loading to the GCS bucket.')
     create_file_in_gcs_bucket()
 
-    print('Files loaded to GCS! Loading to STAGING.')
+    print('Files loaded to GCS! Creating external table.')
+    create_external_table()
+
+    print('Load to external table complete! Loading data to STAGING.')
+    load_data_to_staging()
+
+    print('STAGING load complete! Inserting new records in DATAMART table.')
+    load_data_to_datamart()
     
-    
-    print('Load complete. Cleaning up the directory.')
+    print('DATAMART load complete! Cleaning up the directory.')
     clean_up_directory()
     
     print('Directory cleaned up! Job complete!')
