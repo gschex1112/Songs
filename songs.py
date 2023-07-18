@@ -3,7 +3,6 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import os
 
 URL = 'https://www.971theriver.com/lsp/'
 GCS_BUCKET_NAME = 'the-river-songs'
