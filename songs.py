@@ -56,10 +56,12 @@ def create_file_in_gcs_bucket() -> str:
     Run the scraping and dataframe creation functions, create a CSV file,
     and load the file to the GCS bucket.
     '''
-    
+    times, songs, artists  = get_data()
+    playlist = create_dataframe(times, songs, artists)
+
     storage_client = storage.Client()
 
-    file_timestamp = str(int(datetime.now().timestamp()))
+    file_timestamp = datetime.strftime(datetime.now(), '%Y%m%d%H%M%S')
 
     bucket_name = GCS_BUCKET_NAME
 
