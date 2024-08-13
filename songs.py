@@ -78,73 +78,77 @@ def create_file_in_gcs_bucket() -> str:
 
     return uri
 
-uri = create_file_in_gcs_bucket()
+def main():
+    uri = create_file_in_gcs_bucket()
 
-external_query = f'''
-    CREATE OR REPLACE EXTERNAL TABLE
-        `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
-    OPTIONS (
-        format = 'CSV',
-        skip_leading_rows = 1,
-        uris = ['{uri}']
-    )
-    ;
-'''
-
-external_client = bigquery.Client()
-
-external_client.query(external_query)
-external_client.close()
-
-staging_query = f'''
-    TRUNCATE TABLE
-        `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
-    INSERT
-        `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
-    SELECT
-        Song,
-        Artist,
-        DATE(TimePlayed) AS DatePlayed,
-        TIME(TimePlayed) AS TimePlayed
-    FROM
-        `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
-    ;
-'''
-
-staging_client = bigquery.Client()
-    
-staging_client.query(staging_query)
-staging_client.close()
-
-datamart_query = f'''
-    INSERT
-        `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
-    SELECT DISTINCT
-        Song,
-        Artist,
-        DatePlayed,
-        TimePlayed
-    FROM
-        `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}` AS S
-    WHERE
-        NOT EXISTS (
-            SELECT
-                1
-            FROM
-                `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
-            WHERE
-                Song = S.Song
-                AND
-                Artist = S.Artist
-                AND
-                DatePlayed = S.DatePlayed
-                AND
-                TimePlayed = S.TimePlayed
+    external_query = f'''
+        CREATE OR REPLACE EXTERNAL TABLE
+            `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
+        OPTIONS (
+            format = 'CSV',
+            skip_leading_rows = 1,
+            uris = ['{uri}']
         )
-    ;
-'''
+        ;
+    '''
 
-datamart_client = bigquery.Client()
+    external_client = bigquery.Client()
 
-datamart_client.query(datamart_query)
-datamart_client.close()
+    external_client.query(external_query)
+    external_client.close()
+
+    staging_query = f'''
+        TRUNCATE TABLE
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
+        INSERT
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}`
+        SELECT
+            Song,
+            Artist,
+            DATE(TimePlayed) AS DatePlayed,
+            TIME(TimePlayed) AS TimePlayed
+        FROM
+            `{BQ_PROJECT_NAME}.RAW_DATA.{TABLE_NAME}`
+        ;
+    '''
+
+    staging_client = bigquery.Client()
+        
+    staging_client.query(staging_query)
+    staging_client.close()
+
+    datamart_query = f'''
+        INSERT
+            `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
+        SELECT DISTINCT
+            Song,
+            Artist,
+            DatePlayed,
+            TimePlayed
+        FROM
+            `{BQ_PROJECT_NAME}.STAGING.{TABLE_NAME}` AS S
+        WHERE
+            NOT EXISTS (
+                SELECT
+                    1
+                FROM
+                    `{BQ_PROJECT_NAME}.DATAMART.{TABLE_NAME}`
+                WHERE
+                    Song = S.Song
+                    AND
+                    Artist = S.Artist
+                    AND
+                    DatePlayed = S.DatePlayed
+                    AND
+                    TimePlayed = S.TimePlayed
+            )
+        ;
+    '''
+
+    datamart_client = bigquery.Client()
+
+    datamart_client.query(datamart_query)
+    datamart_client.close()
+
+if __name__ == '__main__':
+    main()
