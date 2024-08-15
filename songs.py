@@ -55,7 +55,7 @@ def create_dataframe(times: list, songs: list, artists: list) -> pd.DataFrame:
 
     return playlist
 
-def create_file_in_gcs_bucket() -> str:
+def create_file_in_gcs_bucket() -> tuple[str, str]:
 
     '''
     Run the scraping and dataframe creation functions, create a CSV file,
@@ -82,7 +82,7 @@ def create_file_in_gcs_bucket() -> str:
 
     return blob, uri
 
-def main():
+def main(argv=None) -> str:
     blob, uri = create_file_in_gcs_bucket()
 
     external_query = f'''
@@ -165,6 +165,8 @@ def main():
     bucket.copy_blob(blob, archive_bucket, blob.name)
 
     bucket.delete_blob(blob.name)
+
+    return '0'
 
 if __name__ == '__main__':
     main()
